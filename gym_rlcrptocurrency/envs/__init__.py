@@ -1,1 +1,1 @@
-from gym_rlcrptocurrency.envs.rlcrptocurrency_env import RLCrptocurrencyEnv
+from gym_rlcrptocurrency.envs.rlcrptocurrency_env import RLCrptocurrencyEnv, Market

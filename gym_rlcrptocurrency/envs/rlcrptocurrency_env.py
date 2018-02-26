@@ -9,21 +9,29 @@ import numpy as np
 class RLCrptocurrencyEnv(gym.Env):
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, n_exchange, n_currency, markets):
+    def __init__(self, n_exchange, n_currency, markets=None):
         """
-        Cryptocurrency arbitrage system environment
+        Crypto-currency arbitrage system environment
 
         :param n_exchange: Integer, representing number of exchanges
-        :param n_currency: Integer, representing number of cryptocurrencies to be considered. Notice that there is
-                           always a flat currency (USD here) in addition to cryptocurrency in portfolio
-        :param markets: A matrix of market with row being exchange, column being cryptocurrency. Market is an object
-                        as defined below
+        :param n_currency: Integer, representing number of crypto-currencies to be considered. Notice that there is
+                           always a flat currency (USD here) in addition to crypto-currency in portfolio as first column
+        :param markets: A matrix of market with row being exchange, column being crypto-currency.
+                        Market is an object as defined below
+                        None by default. In which case, user should specify it through setter after instance is created
         """
 
-
-        # TODO: define state space
-        self.observation_space = None
-        self.action_space = None
+        # define observation and action space
+        # Since we have np.inf as bound, sample() on observation_space and action_space would throw error
+        self.observation_space = spaces.Tuple((
+            spaces.Box(low=0.0, high=np.inf, shape=(n_exchange, n_currency+1), dtype=np.float64),           # portfolio
+            spaces.Box(low=0.0, high=np.inf,
+                       shape=(n_exchange, n_currency, len(self.market_obs_attributes)), dtype=np.float64),  # market
+        ))
+        self.action_space = spaces.Tuple((
+            spaces.Box(low=-np.inf, high=np.inf, shape=(n_exchange, n_currency), dtype=np.float64),          # purchase
+            spaces.Box(low=0.0, high=np.inf, shape=(n_exchange, n_exchange, n_currency), dtype=np.float64),  # transfer
+        ))
 
         ##########
         # states #
@@ -44,10 +52,9 @@ class RLCrptocurrencyEnv(gym.Env):
         # Some basic setup #
         ####################
 
-        # TODO: all stuffs below are hard-coded and only serve as a placeholder this moment
-
-        self._fee_exchange = 0.0001  # 0.1%
-        self._fee_transfer = 0.00005    # 0.05%
+        # TODO: just placeholder for now
+        self._fee_exchange = 0.001   # 0.1%
+        self._fee_transfer = 0.0005  # 0.05%
 
         #########################
         # Other internal states #
@@ -64,9 +71,14 @@ class RLCrptocurrencyEnv(gym.Env):
     def n_currency(self):
         return self._n_currency
 
+    def set_markets(self, markets):
+        self._state_market = markets
+        return self
+
     def step(self, action):
         """
         Evolve the environment in one time-step
+
         :param action: A tuple of action_purchase and action_trasfer
             1. action_purchase is the buy/sell matrix (n_exchange, n_currency).
                Row represents exchanges, column represents crypto-currency.
@@ -80,15 +92,22 @@ class RLCrptocurrencyEnv(gym.Env):
         :return: obs (obj), reward (float), episode_over(bool), info(dict)
         """
 
+        #################
+        # Handle Inputs #
+        #################
+
+        # basic validity check of input action
+        assert self.action_space.contains(action), "Invalid input action!"
+
+        # decompose actions
         action_purchase, action_transfer = action
 
-        ##########################
-        # Validate Current State #
-        ##########################
-
-        assert self.check_market_align(), "Timestamp not aligned across markets!"
-
-        # TODO: validate the action
+        # "currency-conservation" check
+        # To make sure we are market-free, we enforce conservation of crypto-currency across all exchanges
+        # This is equivalent to requiring summation of a given crypto-currency purchase across exchanges to be zero
+        # Notice that we only perform check here. It is still user's responsibility to make sure input action meet
+        # such requirement (by, for example, reducing the degree of freedom)
+        assert np.count_nonzero(np.sum(action_purchase, axis=0)) == 0, "Currency conservation is broken!"
 
         #################
         # Update States #
@@ -116,7 +135,7 @@ class RLCrptocurrencyEnv(gym.Env):
         purchase_currency = action_purchase * market_price
         mask_buy = purchase_currency > 0
         mask_sell = purchase_currency < 0
-        purchase_currency[mask_buy] *= (1.0 + self._fee_exchange + self._fee_transfer)
+        purchase_currency[mask_buy] /= (1.0 - self._fee_exchange)
         purchase_currency[mask_sell] *= (1.0 - self._fee_exchange)
 
         # update flat currency balance
@@ -126,55 +145,49 @@ class RLCrptocurrencyEnv(gym.Env):
         self._state_portfolio[:, 1:] += action_purchase
 
         # transfer crypto-currency
-        # TODO: transfer time is arbitrarily hard-coded as a placeholder for now
-        elements_to_transfer = [
-            TransferElement(
-                source=exchange_source,
-                destination=exchange_destination,
-                amount=action_transfer[exchange_source, exchange_destination, currency],
-                currency=currency,
-                time_left=30,
-            )
-            for exchange_source in range(self.n_exchange)
-            for exchange_destination in range(self.n_exchange)
-            for currency in range(self.n_currency)
-        ]
-        for element in elements_to_transfer:
-            self._state_portfolio[element.source, element.currency+1] -= element.amount
-            self._state_transfer.add(element)
+        for exchange_source in range(self.n_exchange):
+            for exchange_destination in range(self.n_exchange):
+                for currency in range(self.n_currency):
+                    amount = action_transfer[exchange_source, exchange_destination, currency]
+                    if amount <= 0.0:
+                        continue
+
+                    element = TransferElement(
+                        source=exchange_source,
+                        destination=exchange_destination,
+                        amount=amount,
+                        currency=currency,
+                        time_left=1+int(np.random.exponential(scale=30)),  # TODO: placeholder only
+                    )
+
+                    self._state_portfolio[element.source, element.currency+1] -= element.amount
+                    self._state_transfer.add(element)
+
+                    # TODO: transfer fee is charged on cash account upon transfer
+                    self._state_portfolio[element.source, 0] -= \
+                        element.amount * market_price[exchange_source, currency] * self._fee_transfer
+
+        ##########################
+        # Check on updated state #
+        ##########################
+
+        assert self._check_market_align(), "Timestamp not aligned across markets!"
 
         ###################
-        # Get Observation #
+        # Prepare returns #
         ###################
 
         _obs_ = self._get_observation()
 
-        ###################
-        # Compute Rewards #
-        ###################
-
-        # get total cash after transfer
-        total_cash_after = self._get_total_cash()
-
-        _reward_ = total_cash_after - total_cash_before
-
-        #################################
-        # Check if it is end of episode #
-        #################################
-
-        # TODO: As a placeholder, we flag episode to be done when all cash is run out
-        _done_ = total_cash_after <= 0.
-
-        #################################
-        # Additional info for debugging #
-        #################################
+        if not self.observation_space.contains(_obs_):
+            _reward_ = -1e9  # TODO: infinity negative reward since this is not acceptable
+            _done_ = True
+        else:
+            _reward_ = self._get_total_cash() - total_cash_before
+            _done_ = False
 
         # TODO: nothing for now
         _info_ = None
-
-        ##########
-        # Return #
-        ##########
 
         return _obs_, _reward_, _done_, _info_
 
@@ -191,6 +204,9 @@ class RLCrptocurrencyEnv(gym.Env):
         self._state_transfer.reset()
         self._state_market = map(lambda market_exchange: map(lambda market: market.init(init_time), market_exchange),
                                  self._state_market)
+
+        assert self._check_market_align(), "Invalid time initialization!"
+        assert self.observation_space.contains(self._get_observation()), "Invalid portfolio initialization!"
 
         return self
 
@@ -221,6 +237,7 @@ class RLCrptocurrencyEnv(gym.Env):
     def _get_observation(self):
         """
         Return observation based on current state
+
         :return: Tuple of (portfolio, market_obs)
           portfolio: A numpy array of shape (n_exchange, n_currency+1)
           market_obs: A numpy array of shape (n_exchange, n_currency, n_attributes)
@@ -228,16 +245,20 @@ class RLCrptocurrencyEnv(gym.Env):
 
         # TODO: no observation for buffer for now
 
+        # portfolio
         portfolio = self._state_portfolio
 
+        # market observation
         def market_to_vector(market):
             market_info = market.peek()
-            map(lambda attribute: market_info[attribute], self.market_obs_attributes)
+            return map(lambda attribute: market_info[attribute], self.market_obs_attributes)
 
-        market_obs = map(lambda exchange: map(lambda currency: market_to_vector(self._state_market[exchange, currency]),
+        market_obs = map(lambda exchange: map(lambda currency: market_to_vector(self._state_market[exchange][currency]),
                                               range(self.n_currency)),
                          range(self.n_exchange))
+        market_obs = np.array(market_obs, dtype=np.float64)
 
+        # return
         return portfolio, market_obs
 
     @property
@@ -252,7 +273,7 @@ class RLCrptocurrencyEnv(gym.Env):
             "Weighted_Price"
         ]
 
-    def check_market_align(self):
+    def _check_market_align(self):
         """
         Check if all markets is aligned at the same time
 
@@ -260,14 +281,11 @@ class RLCrptocurrencyEnv(gym.Env):
         """
 
         current_times = \
-        map(lambda market_exchange: set(map(lambda market: market.peek()["Timestamp"], market_exchange)),
-            self._state_market)
-
+            map(lambda market_exchange: set(map(lambda market: market.peek()["Timestamp"], market_exchange)),
+                self._state_market)
         current_times = reduce(lambda x, y: x | y, current_times)
 
         return len(current_times) == 1
-
-
 
 ########################################################################################################################
 
@@ -302,6 +320,8 @@ class Market(object):
         Volume_Currency: Transaction volume in flat currency
         Weighted_Price: The guide price for buy/sell at this time
         """
+
+        print "Loading market data {:s} ...".format(file_path)
 
         # load and convert to pandas DataFrame
         data = pd.read_csv(file_path).copy()
