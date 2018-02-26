@@ -32,10 +32,33 @@ action_purchase = np.array(
     ],
     dtype=np.float64
 )
-action_transfer = np.zeros(shape=(2, 2, 1), dtype=np.float64)
+action_transfer = np.array(
+    [
+        [[0], [0.1]],
+        [[0], [0]],
+    ]
+)
+# np.zeros(shape=(2, 2, 1), dtype=np.float64)
+action = (action_purchase, action_transfer)
 
-obs, reward, done, _ = env.step((action_purchase, action_transfer))
-print obs
+print "\nCompatible action?", env.check_obs_action(action)
+obs, reward, done, _ = env.step(action)
+print obs[0]
+print obs[1]
+print obs[2]
 print reward
 print done
+
+for _ in range(60):
+    # action_purchase = np.zeros(shape=(2, 1), dtype=np.float64)
+    # action_transfer = np.zeros(shape=(2, 2, 1), dtype=np.float64)
+    # action = (action_purchase, action_transfer)
+
+    print "\nCompatible action?", env.check_obs_action(action)
+    obs, reward, done, _ = env.step(action)
+    print obs[0]
+    print obs[1]
+    print obs[2]
+    print reward
+    print done
 

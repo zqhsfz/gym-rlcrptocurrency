@@ -4,6 +4,7 @@ from gym.utils import seeding
 
 import pandas as pd
 import numpy as np
+from copy import deepcopy
 
 
 class RLCrptocurrencyEnv(gym.Env):
@@ -27,6 +28,7 @@ class RLCrptocurrencyEnv(gym.Env):
             spaces.Box(low=0.0, high=np.inf, shape=(n_exchange, n_currency+1), dtype=np.float64),           # portfolio
             spaces.Box(low=0.0, high=np.inf,
                        shape=(n_exchange, n_currency, len(self.market_obs_attributes)), dtype=np.float64),  # market
+            spaces.Box(low=0.0, high=np.inf, shape=(n_currency,), dtype=np.float64),                        # buffer
         ))
         self.action_space = spaces.Tuple((
             spaces.Box(low=-np.inf, high=np.inf, shape=(n_exchange, n_currency), dtype=np.float64),          # purchase
@@ -63,6 +65,10 @@ class RLCrptocurrencyEnv(gym.Env):
         self._n_exchange = n_exchange
         self._n_currency = n_currency
 
+        # Numpy array of shape (n_currency+1,), indicating the initial total balance
+        # Should be reset every time init() is called
+        self._init_balance = None
+
     @property
     def n_exchange(self):
         return self._n_exchange
@@ -82,12 +88,12 @@ class RLCrptocurrencyEnv(gym.Env):
         :param action: A tuple of action_purchase and action_trasfer
             1. action_purchase is the buy/sell matrix (n_exchange, n_currency).
                Row represents exchanges, column represents crypto-currency.
-               Value is the amount of purchase. Positive means buy-in; Negative means sell-off.
+               Value is the amount of crypto-currency being purchased. Positive means buy-in; Negative means sell-off.
             2. action_trasfer is the transfer tensor of rank-3 (n_exchange, n_exchange, n_currency)
                First rank is the source exchanges;
                Second rank is the destination exchanges;
                Third rank is the crypto-currency
-               Value is the amount of transfer, and must be non-negative
+               Value is the amount of crypto-currency being transferred, and must be non-negative
 
         :return: obs (obj), reward (float), episode_over(bool), info(dict)
         """
@@ -96,18 +102,13 @@ class RLCrptocurrencyEnv(gym.Env):
         # Handle Inputs #
         #################
 
-        # basic validity check of input action
-        assert self.action_space.contains(action), "Invalid input action!"
+        action = deepcopy(action)
+
+        # action validity check
+        assert self._check_action(action), "Invalid input action!"
 
         # decompose actions
         action_purchase, action_transfer = action
-
-        # "currency-conservation" check
-        # To make sure we are market-free, we enforce conservation of crypto-currency across all exchanges
-        # This is equivalent to requiring summation of a given crypto-currency purchase across exchanges to be zero
-        # Notice that we only perform check here. It is still user's responsibility to make sure input action meet
-        # such requirement (by, for example, reducing the degree of freedom)
-        assert np.count_nonzero(np.sum(action_purchase, axis=0)) == 0, "Currency conservation is broken!"
 
         #################
         # Update States #
@@ -132,9 +133,18 @@ class RLCrptocurrencyEnv(gym.Env):
             self._state_portfolio[element.destination, element.currency+1] += element.amount
 
         # flat currency needed to spend on all buys / sells
+        # There are two fee to be considered here:
+        # 1. For an action of purchasing N crypto-currency, we actually need to buy N/(1-fee_transfer) crypto-currency,
+        #    in order to account for the potential transfer loss in the future. For market-free arbitrage system, one
+        #    transaction is expected. We enforce such constraint buy applying "currency-conservation" check.
+        #    Notice that this does not apply for selling order though.
+        # 2. For any buy/sell action, there is an exchange fee related to the amount of USD transaction.
+        #    Notice the way we apply exchange fee on buy and sell is slightly different
+        mask_buy = action_purchase > 0
+        mask_sell = action_purchase < 0
+        action_purchase[mask_buy] /= (1.0 - self._fee_transfer)
+
         purchase_currency = action_purchase * market_price
-        mask_buy = purchase_currency > 0
-        mask_sell = purchase_currency < 0
         purchase_currency[mask_buy] /= (1.0 - self._fee_exchange)
         purchase_currency[mask_sell] *= (1.0 - self._fee_exchange)
 
@@ -160,33 +170,24 @@ class RLCrptocurrencyEnv(gym.Env):
                         time_left=1+int(np.random.exponential(scale=30)),  # TODO: placeholder only
                     )
 
-                    self._state_portfolio[element.source, element.currency+1] -= element.amount
+                    # For an action of transfer N crypto-currency, we need to transfer slightly more
+                    # in order to enforce N crypto-currency arriving at destination
+                    self._state_portfolio[element.source, element.currency+1] -= (element.amount / (1.0 - self._fee_transfer))
                     self._state_transfer.add(element)
-
-                    # TODO: transfer fee is charged on cash account upon transfer
-                    self._state_portfolio[element.source, 0] -= \
-                        element.amount * market_price[exchange_source, currency] * self._fee_transfer
 
         ##########################
         # Check on updated state #
         ##########################
 
-        assert self._check_market_align(), "Timestamp not aligned across markets!"
+        assert self._check_state(), "Invalid state after one-step update!"
 
         ###################
         # Prepare returns #
         ###################
 
         _obs_ = self._get_observation()
-
-        if not self.observation_space.contains(_obs_):
-            _reward_ = -1e9  # TODO: infinity negative reward since this is not acceptable
-            _done_ = True
-        else:
-            _reward_ = self._get_total_cash() - total_cash_before
-            _done_ = False
-
-        # TODO: nothing for now
+        _reward_ = self._get_total_cash() - total_cash_before  # important: only cash
+        _done_ = False  # infinite episode
         _info_ = None
 
         return _obs_, _reward_, _done_, _info_
@@ -197,18 +198,23 @@ class RLCrptocurrencyEnv(gym.Env):
 
         :param init_portfolio: Initial portfolio, same shape as self._state_portfolio
         :param init_time: Initial time, to initialize the market
-        :return: Self
+        :return: Same output as step()
         """
 
+        # initialize states
         self._state_portfolio = init_portfolio
         self._state_transfer.reset()
         self._state_market = map(lambda market_exchange: map(lambda market: market.init(init_time), market_exchange),
                                  self._state_market)
 
-        assert self._check_market_align(), "Invalid time initialization!"
-        assert self.observation_space.contains(self._get_observation()), "Invalid portfolio initialization!"
+        # cache the initial total balance
+        self._init_balance = np.sum(init_portfolio, axis=0)
 
-        return self
+        # validity checks
+        assert self._check_state(), "Invalid state initialization!"
+
+        # return
+        return self._get_observation(), 0.0, False, None
 
     def reset(self):
         """
@@ -217,10 +223,7 @@ class RLCrptocurrencyEnv(gym.Env):
         :return: Self
         """
 
-        return self.init(
-            init_portfolio=np.zeros(shape=(self.n_exchange, self.n_currency+1), dtype=np.float64),
-            init_time=None,
-        )
+        raise NotImplementedError("Do not use reset()! Use init() instead.")
 
     def render(self, mode='human', close=False):
         pass
@@ -243,7 +246,10 @@ class RLCrptocurrencyEnv(gym.Env):
           market_obs: A numpy array of shape (n_exchange, n_currency, n_attributes)
         """
 
-        # TODO: no observation for buffer for now
+        # buffer
+        # for buffer, we will only have aggregated balance for each crypto-currency
+        # no time_left information should be used in order to reduce dependency on exact transfer mechanism
+        buffer_obs = self._get_buffer_balance()
 
         # portfolio
         portfolio = self._state_portfolio
@@ -259,7 +265,7 @@ class RLCrptocurrencyEnv(gym.Env):
         market_obs = np.array(market_obs, dtype=np.float64)
 
         # return
-        return portfolio, market_obs
+        return portfolio, market_obs, buffer_obs
 
     @property
     def market_obs_attributes(self):
@@ -273,9 +279,22 @@ class RLCrptocurrencyEnv(gym.Env):
             "Weighted_Price"
         ]
 
+    def _get_buffer_balance(self):
+        """
+        Obtain the balance for all crypto-currency in transfer buffer
+
+        :return: Numpy array of shape (n_currency,)
+        """
+
+        balance_transfer = np.zeros(shape=(self.n_currency,), dtype=np.float64)
+        for element in self._state_transfer.buffer:
+            balance_transfer[element.currency] += element.amount
+
+        return balance_transfer
+
     def _check_market_align(self):
         """
-        Check if all markets is aligned at the same time
+        Check if all markets are aligned at the same time
 
         :return: Boolean
         """
@@ -286,6 +305,110 @@ class RLCrptocurrencyEnv(gym.Env):
         current_times = reduce(lambda x, y: x | y, current_times)
 
         return len(current_times) == 1
+
+    def _check_crypto_balance(self):
+        """
+        Check if the total amount of crypto-currency across all exchanges (and transfer buffers) is no less than
+        initial value
+
+        :return: Boolean
+        """
+
+        balance_portfolio = np.sum(self._state_portfolio[:, 1:], axis=0)
+        balance_transfer = self._get_buffer_balance()
+        balance = balance_portfolio + balance_transfer
+
+        return np.all(balance >= self._init_balance[1:])
+
+    def _check_state(self):
+        """
+        Combination of
+        1. _check_market_align
+        2. _check_crypto_balance
+        3. observation space check
+
+        :return: Boolean
+        """
+
+        return self._check_market_align() and self._check_crypto_balance() and self.observation_space.contains(self._get_observation())
+
+    def _check_action(self, action):
+        """
+        Validity check of an action
+        1. action space check
+        2. Sum of crypto-currency orders across exchanges sum to zero
+
+        :param action: Action
+        :return: Boolean
+        """
+
+        return self.action_space.contains(action) and np.count_nonzero(np.sum(action[0], axis=0)) == 0
+
+    def check_obs_action(self, action, obs=None):
+        """
+        Compatibility check between action and observation.
+        The idea is that if one is able to pass this check, then running step() (immediately after)
+        should not throw any exception
+
+        :param obs: Observation. If None (default), will take the observation from current state
+        :param action: Action.
+        :return: Boolean
+        """
+
+        action = deepcopy(action)
+
+        # Some basic checks
+
+        if not self._check_action(action):
+            return False
+
+        if obs is None:
+            obs = self._get_observation()
+
+        if not self.observation_space.contains(obs):
+            return False
+
+        # Compatibility check
+
+        obs_portfolio, obs_market, obs_transfer = obs
+        action_purchase, action_transfer = action
+
+        # 1. There is enough crypto-currency in portfolio to sell
+        mask_buy = action_purchase > 0
+        mask_sell = action_purchase < 0
+
+        if not np.all(obs_portfolio[:, 1:][mask_sell] + action_purchase[mask_sell] >= 0):
+            return False
+
+        # 2. There is enough cash in portfolio to buy
+        price_index = self.market_obs_attributes.index("Weighted_Price")
+        market_price = obs_market[:, :, price_index]
+
+        action_purchase[mask_buy] /= (1.0 - self._fee_transfer)
+        purchase_currency = action_purchase * market_price
+        purchase_currency[mask_buy] /= (1.0 - self._fee_exchange)
+        purchase_currency[mask_sell] *= (1.0 - self._fee_exchange)
+
+        if not np.all(obs_portfolio[:, 0] >= np.sum(purchase_currency, axis=1)):
+            return False
+
+        # 3. There should be enough crypto-currency left for transfer
+        obs_portfolio_crypto_updated = obs_portfolio[:, 1:] + action_purchase
+        action_transfer_from = np.sum(action_transfer, axis=1)
+        action_transfer_from_adjusted = action_transfer_from / (1.0 - self._fee_transfer)
+        obs_portfolio_crypto_updated -= action_transfer_from_adjusted
+
+        if not np.all(obs_portfolio_crypto_updated >= 0):
+            return False
+
+        # 4. Total crypto-currency balance larger than initialization after previous two steps
+        balance_portfolio = np.sum(obs_portfolio_crypto_updated, axis=0)
+        balance_transfer = obs_transfer + np.sum(action_transfer_from, axis=0)
+
+        if not np.all(balance_portfolio + balance_transfer >= self._init_balance[1:]):
+            return False
+
+        return True
 
 ########################################################################################################################
 
@@ -483,6 +606,10 @@ class TransferBuffer(object):
     @property
     def size(self):
         return len(self._buffer)
+
+    @property
+    def buffer(self):
+        return list(self._buffer)
 
     def add(self, element):
         """
