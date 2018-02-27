@@ -31,8 +31,8 @@ class RLCrptocurrencyEnv(gym.Env):
             spaces.Box(low=0.0, high=np.inf, shape=(n_currency,), dtype=np.float64),                        # buffer
         ))
         self.action_space = spaces.Tuple((
-            spaces.Box(low=-np.inf, high=np.inf, shape=(n_exchange, n_currency), dtype=np.float64),          # purchase
-            spaces.Box(low=0.0, high=np.inf, shape=(n_exchange, n_exchange, n_currency), dtype=np.float64),  # transfer
+            spaces.Box(low=-np.inf, high=np.inf, shape=(n_exchange, n_currency), dtype=np.float64),              # purchase
+            spaces.Box(low=-np.inf, high=np.inf, shape=(n_exchange, n_exchange, n_currency), dtype=np.float64),  # transfer
         ))
 
         ##########
@@ -117,7 +117,7 @@ class RLCrptocurrencyEnv(gym.Env):
         # Handle Inputs #
         #################
 
-        action = deepcopy(action)
+        action = self._standardize_action(action)
 
         # action validity check
         assert self._check_action(action), "Invalid input action!"
@@ -307,6 +307,40 @@ class RLCrptocurrencyEnv(gym.Env):
 
         return balance_transfer
 
+    def _standardize_action(self, action):
+        """
+        Standardize provided action
+
+        :param action: Action
+        :return: A copy of action, with transformation applied
+        """
+
+        # make a deep copy
+        action = deepcopy(action)
+
+        # decompose action
+        action_purchase, action_transfer = action
+
+        # remove all negative part in action_transfer
+        action_transfer[action_transfer < 0.] = 0.
+
+        # merge the redundant transfer (merge A->B and B->A into the direction of largest value)
+        for currency in range(self.n_currency):
+            for exchange_A in range(self.n_exchange):
+                for exchange_B in range(self.n_exchange):
+                    A_to_B = action_transfer[exchange_A, exchange_B, currency]
+                    B_to_A = action_transfer[exchange_B, exchange_A, currency]
+
+                    if A_to_B > B_to_A:
+                        action_transfer[exchange_A, exchange_B, currency] = A_to_B - B_to_A
+                        action_transfer[exchange_B, exchange_A, currency] = 0.
+                    else:
+                        action_transfer[exchange_B, exchange_A, currency] = B_to_A - A_to_B
+                        action_transfer[exchange_A, exchange_B, currency] = 0.
+
+        # return
+        return action_purchase, action_transfer
+
     def _check_market_align(self):
         """
         Check if all markets are aligned at the same time
@@ -371,7 +405,7 @@ class RLCrptocurrencyEnv(gym.Env):
         :return: Boolean
         """
 
-        action = deepcopy(action)
+        action = self._standardize_action(action)
 
         # Some basic checks
 
