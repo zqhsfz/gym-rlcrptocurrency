@@ -32,7 +32,7 @@ class RLCrptocurrencyEnv(gym.Env):
         ))
         self.action_space = spaces.Tuple((
             spaces.Box(low=-np.inf, high=np.inf, shape=(n_exchange, n_currency), dtype=np.float64),          # purchase
-            spaces.Box(low=0.0, high=np.inf, shape=(n_exchange, n_exchange, n_currency), dtype=np.float64),  # transfer
+            spaces.Box(low=-np.inf, high=np.inf, shape=(n_exchange, n_exchange, n_currency), dtype=np.float64),  # transfer
         ))
 
         ##########
@@ -318,7 +318,7 @@ class RLCrptocurrencyEnv(gym.Env):
         balance_transfer = self._get_buffer_balance()
         balance = balance_portfolio + balance_transfer
 
-        return np.all(balance >= self._init_balance[1:])
+        return np.all(balance >= self._init_balance[1:]-1e-3)
 
     def _check_state(self):
         """
