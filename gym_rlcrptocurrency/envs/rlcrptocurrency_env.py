@@ -69,6 +69,9 @@ class RLCrptocurrencyEnv(gym.Env):
         # Should be reset every time init() is called
         self._init_balance = None
 
+        # numerical tollerance
+        self._tol = 1e-5
+
     @property
     def n_exchange(self):
         return self._n_exchange
@@ -76,6 +79,18 @@ class RLCrptocurrencyEnv(gym.Env):
     @property
     def n_currency(self):
         return self._n_currency
+
+    @property
+    def fee_exchange(self):
+        return self._fee_exchange
+
+    @property
+    def fee_transfer(self):
+        return self._fee_transfer
+
+    @property
+    def init_balance(self):
+        return self._init_balance
 
     def set_markets(self, markets):
         self._state_market = markets
@@ -318,7 +333,7 @@ class RLCrptocurrencyEnv(gym.Env):
         balance_transfer = self._get_buffer_balance()
         balance = balance_portfolio + balance_transfer
 
-        return np.all(balance >= self._init_balance[1:])
+        return np.all(balance - self._init_balance[1:] >= -self._tol)
 
     def _check_state(self):
         """
@@ -344,7 +359,7 @@ class RLCrptocurrencyEnv(gym.Env):
 
         return self.action_space.contains(action) and np.count_nonzero(np.sum(action[0], axis=0)) == 0
 
-    def check_obs_action(self, action, obs=None):
+    def check_obs_action(self, action, obs=None, verbose=False):
         """
         Compatibility check between action and observation.
         The idea is that if one is able to pass this check, then running step() (immediately after)
@@ -352,6 +367,7 @@ class RLCrptocurrencyEnv(gym.Env):
 
         :param obs: Observation. If None (default), will take the observation from current state
         :param action: Action.
+        :param verbose: If true, then will print out failing reason
         :return: Boolean
         """
 
@@ -360,12 +376,16 @@ class RLCrptocurrencyEnv(gym.Env):
         # Some basic checks
 
         if not self._check_action(action):
+            if verbose:
+                print "\nFail on action validity check"
             return False
 
         if obs is None:
             obs = self._get_observation()
 
         if not self.observation_space.contains(obs):
+            if verbose:
+                print "\nFail on observation space basics check"
             return False
 
         # Compatibility check
@@ -377,7 +397,9 @@ class RLCrptocurrencyEnv(gym.Env):
         mask_buy = action_purchase > 0
         mask_sell = action_purchase < 0
 
-        if not np.all(obs_portfolio[:, 1:][mask_sell] + action_purchase[mask_sell] >= 0):
+        if not np.all(obs_portfolio[:, 1:][mask_sell] + action_purchase[mask_sell] >= -self._tol):
+            if verbose:
+                print "\nNot enough crypto-currency to sell"
             return False
 
         # 2. There is enough cash in portfolio to buy
@@ -389,7 +411,9 @@ class RLCrptocurrencyEnv(gym.Env):
         purchase_currency[mask_buy] /= (1.0 - self._fee_exchange)
         purchase_currency[mask_sell] *= (1.0 - self._fee_exchange)
 
-        if not np.all(obs_portfolio[:, 0] >= np.sum(purchase_currency, axis=1)):
+        if not np.all(obs_portfolio[:, 0] - np.sum(purchase_currency, axis=1) >= -self._tol):
+            if verbose:
+                print "\nNot enough cash to buy crypto-currency"
             return False
 
         # 3. There should be enough crypto-currency left for transfer
@@ -398,14 +422,18 @@ class RLCrptocurrencyEnv(gym.Env):
         action_transfer_from_adjusted = action_transfer_from / (1.0 - self._fee_transfer)
         obs_portfolio_crypto_updated -= action_transfer_from_adjusted
 
-        if not np.all(obs_portfolio_crypto_updated >= 0):
+        if not np.all(obs_portfolio_crypto_updated >= -self._tol):
+            if verbose:
+                print "\nNot enough crypto-currency to transfer"
             return False
 
         # 4. Total crypto-currency balance larger than initialization after previous two steps
         balance_portfolio = np.sum(obs_portfolio_crypto_updated, axis=0)
         balance_transfer = obs_transfer + np.sum(action_transfer_from, axis=0)
 
-        if not np.all(balance_portfolio + balance_transfer >= self._init_balance[1:]):
+        if not np.all(balance_portfolio + balance_transfer - self._init_balance[1:] >= -self._tol):
+            if verbose:
+                print "\nTotal crypto-currency balance less than initialization"
             return False
 
         return True
