@@ -271,7 +271,7 @@ class RLCrptocurrencyEnv(gym.Env):
         buffer_obs = self._get_buffer_balance()
 
         # portfolio
-        portfolio = self._state_portfolio
+        portfolio = np.copy(self._state_portfolio)
 
         # market observation
         def market_to_vector(market):
@@ -675,7 +675,7 @@ class TransferBuffer(object):
 
     @property
     def buffer(self):
-        return list(self._buffer)
+        return deepcopy(self._buffer)
 
     def add(self, element):
         """
@@ -684,6 +684,8 @@ class TransferBuffer(object):
         :param element: A TransferElement object
         :return: Self
         """
+
+        element = deepcopy(element)
 
         current_size = self.size
 
