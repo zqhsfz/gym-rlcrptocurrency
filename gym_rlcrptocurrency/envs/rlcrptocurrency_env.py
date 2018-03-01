@@ -216,6 +216,10 @@ class RLCrptocurrencyEnv(gym.Env):
         :return: Same output as step()
         """
 
+        # deep copy of initialization so that same initialization can be repeated multiple times
+        init_portfolio = deepcopy(init_portfolio)
+        init_time = deepcopy(init_time)
+
         # initialize states
         self._state_portfolio = init_portfolio
         self._state_transfer.reset()
