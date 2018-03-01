@@ -90,7 +90,7 @@ class RLCrptocurrencyEnv(gym.Env):
 
     @property
     def init_balance(self):
-        return self._init_balance
+        return np.copy(self._init_balance)
 
     def set_markets(self, markets):
         self._state_market = markets
