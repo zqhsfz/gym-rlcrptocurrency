@@ -286,6 +286,15 @@ class RLCrptocurrencyEnv(gym.Env):
         # return
         return portfolio, market_obs, buffer_obs
 
+    def get_observation(self):
+        """
+        Public API for peeking current observation
+
+        :return: Same as _get_observation
+        """
+
+        return self._get_observation()
+
     @property
     def market_obs_attributes(self):
         return [
@@ -395,7 +404,7 @@ class RLCrptocurrencyEnv(gym.Env):
         :return: Boolean
         """
 
-        return self.action_space.contains(action) and np.count_nonzero(np.sum(action[0], axis=0)) == 0
+        return self.action_space.contains(action) and np.max(np.abs(np.sum(action[0], axis=0))) < self._tol
 
     def check_obs_action(self, action, obs=None, verbose=False):
         """
