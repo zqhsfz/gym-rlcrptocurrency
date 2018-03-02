@@ -213,6 +213,8 @@ class RLCrptocurrencyEnv(gym.Env):
 
         :param init_portfolio: Initial portfolio, same shape as self._state_portfolio
         :param init_time: Initial time, to initialize the market
+                          If None, then will call reset() object on market. In this case, the market will move back to
+                          the time when it was initialized last time
         :return: Same output as step()
         """
 
@@ -223,14 +225,35 @@ class RLCrptocurrencyEnv(gym.Env):
         # initialize states
         self._state_portfolio = init_portfolio
         self._state_transfer.reset()
-        self._state_market = map(lambda market_exchange: map(lambda market: market.init(init_time), market_exchange),
-                                 self._state_market)
+        if init_time is None:
+            self._state_market = map(lambda market_exchange: map(lambda market: market.reset(), market_exchange),
+                                     self._state_market)
+        else:
+            self._state_market = map(lambda market_exchange: map(lambda market: market.init(init_time), market_exchange),
+                                     self._state_market)
 
         # cache the initial total balance
         self._init_balance = np.sum(init_portfolio, axis=0)
 
         # validity checks
         assert self._check_state(), "Invalid state initialization!"
+
+        # return
+        return self._get_observation(), 0.0, False, None
+
+    def move_market(self, n=1):
+        """
+        Move market forward, with everything else unchanged
+
+        :param n: Number of steps to move forward
+        :return: Same output as step()
+        """
+
+        self._state_market = map(lambda market_exchange: map(lambda market: market.quick_tick(n), market_exchange),
+                                 self._state_market)
+
+        # validity check
+        assert self._check_state(), "Invalid state after moving forward {:d} steps!".format(n)
 
         # return
         return self._get_observation(), 0.0, False, None
@@ -545,8 +568,11 @@ class Market(object):
         # store data
         self._data = data
 
+        # initial index
+        self._index_init = None
+
         # current time-stamp
-        self._index = 0
+        self._index = None
 
     @property
     def data(self):
@@ -589,6 +615,8 @@ class Market(object):
 
             self._index = i_match
 
+        self._index_init = self._index
+
         return self
 
     def peek(self):
@@ -604,13 +632,35 @@ class Market(object):
         """
         Return current market information and move one-step forward
 
-        :return: Market information at current time-step
+        :return: Market information at current time-step (before moving forward)
         """
 
         info = self.peek()
         self._index += 1
 
         return info
+
+    def quick_tick(self, n=1):
+        """
+        Move market forward by n-steps
+
+        :return: Self
+        """
+
+        self._index += n
+        return self
+
+    def reset(self):
+        """
+        Reset to cached index_init
+
+        :return: Self
+        """
+
+        assert self._index_init is not None, "Please run init() before calling reset!"
+        self._index = self._index_init
+
+        return self
 
 
 class TransferElement(object):
