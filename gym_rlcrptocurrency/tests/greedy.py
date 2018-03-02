@@ -144,7 +144,7 @@ def run_policy():
     ]
 
     # setup environment
-    env = gym.make("rlcrptocurrency-v0")
+    env = gym.make("rlcrptocurrency-v1")
     env.set_markets(markets)
 
     # initialize environment
@@ -155,7 +155,7 @@ def run_policy():
         ],
         dtype=np.float64
     )
-    init_time = "2017-12-1"
+    init_time = "2016-4-1"
     obs, reward, done, _ = env.init(init_portfolio, init_time)
 
     # setup agent
@@ -165,7 +165,7 @@ def run_policy():
     reward_sum = reward
 
     # loop for a complete episode
-    for _ in tqdm(range(43200), desc="Loop on time-stamp"):
+    for _ in tqdm(range(100), desc="Loop on time-stamp"):
         action = agent.policy(obs)
 
         assert env.check_obs_action(action, verbose=True), "Invalid proposed action!"
@@ -175,7 +175,7 @@ def run_policy():
 
     # summary print out
     print "Initial balance:", env.init_balance
-    print "Final balance:", np.sum(obs[0], axis=0)
+    print "Final balance:", env.get_balance()
     print "Reward accumulated:", reward_sum
     print "Return: {:.2f}%".format(100. * reward_sum / env.init_balance[0])
 

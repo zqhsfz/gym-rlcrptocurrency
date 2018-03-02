@@ -10,13 +10,14 @@ from copy import deepcopy
 class RLCrptocurrencyEnv(gym.Env):
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, n_exchange, n_currency, markets=None):
+    def __init__(self, n_exchange, n_currency, mean_transfer_time, markets=None):
         """
         Crypto-currency arbitrage system environment
 
         :param n_exchange: Integer, representing number of exchanges
         :param n_currency: Integer, representing number of crypto-currencies to be considered. Notice that there is
                            always a flat currency (USD here) in addition to crypto-currency in portfolio as first column
+        :param mean_transfer_time: Mean of transfer time
         :param markets: A matrix of market with row being exchange, column being crypto-currency.
                         Market is an object as defined below
                         None by default. In which case, user should specify it through setter after instance is created
@@ -57,6 +58,7 @@ class RLCrptocurrencyEnv(gym.Env):
         # TODO: just placeholder for now
         self._fee_exchange = 0.001   # 0.1%
         self._fee_transfer = 0.0005  # 0.05%
+        self._mean_transfer_time = mean_transfer_time
 
         #########################
         # Other internal states #
@@ -87,6 +89,10 @@ class RLCrptocurrencyEnv(gym.Env):
     @property
     def fee_transfer(self):
         return self._fee_transfer
+
+    @property
+    def mean_transfer_time(self):
+        return self._mean_transfer_time
 
     @property
     def init_balance(self):
@@ -177,12 +183,13 @@ class RLCrptocurrencyEnv(gym.Env):
                     if amount <= 0.0:
                         continue
 
+                    # TODO: assume exponential distribution for tranfer time
                     element = TransferElement(
                         source=exchange_source,
                         destination=exchange_destination,
                         amount=amount,
                         currency=currency,
-                        time_left=1+int(np.random.exponential(scale=30)),  # TODO: placeholder only
+                        time_left=1+int(np.random.exponential(scale=self._mean_transfer_time)),
                     )
 
                     # For an action of transfer N crypto-currency, we need to transfer slightly more
@@ -269,6 +276,20 @@ class RLCrptocurrencyEnv(gym.Env):
 
     def render(self, mode='human', close=False):
         pass
+
+    def get_balance(self, include_buffer=True):
+        """
+        Obtain the balance of portfolio
+
+        :param include_buffer: Whether the money still in transfer is taken into account
+        :return: Numpy array of shape (1+n_currency,)
+        """
+
+        balance = np.sum(self._state_portfolio, axis=0)
+        if include_buffer:
+            balance[1:] += self._get_buffer_balance()
+
+        return balance
 
     ##########################
 
