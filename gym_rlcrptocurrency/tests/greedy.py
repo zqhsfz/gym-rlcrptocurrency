@@ -8,6 +8,10 @@ import numpy as np
 from copy import deepcopy
 from tqdm import tqdm
 
+import matplotlib
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
+
 
 class PolicyGreedy(object):
     def __init__(self, price_index, fee_exchange, fee_transfer):
@@ -135,7 +139,16 @@ class PolicyGreedy(object):
         return action_purchase, action_transfer
 
 
-def run_policy():
+def run_policy(env_name, start_date, n_days):
+    """
+    Run greedy algorithm for n_days starting from start_date
+
+    :param env_name: Name of environment
+    :param start_date: Str, starting date
+    :param n_days: Int, number of days
+    :return: array of (date, aggregated return rate)
+    """
+
     # setup market data
     data_path = "/Users/qzeng/Dropbox/MyDocument/Mac-ZQ/CS/CS234/Material2018/project/data/"
     markets = [
@@ -144,7 +157,7 @@ def run_policy():
     ]
 
     # setup environment
-    env = gym.make("rlcrptocurrency-v1")
+    env = gym.make(env_name)
     env.set_markets(markets)
 
     # initialize environment
@@ -155,7 +168,7 @@ def run_policy():
         ],
         dtype=np.float64
     )
-    init_time = "2016-4-1"
+    init_time = start_date
     obs, reward, done, _ = env.init(init_portfolio, init_time)
 
     # setup agent
@@ -163,15 +176,18 @@ def run_policy():
 
     # setup metrics
     reward_sum = reward
+    output = []
 
     # loop for a complete episode
-    for _ in tqdm(range(100), desc="Loop on time-stamp"):
-        action = agent.policy(obs)
+    for index_day in tqdm(range(n_days), desc="Loop on days"):
+        output.append((index_day, 100.0 * reward_sum / 20000.))
 
-        assert env.check_obs_action(action, verbose=True), "Invalid proposed action!"
+        for _ in range(1440):
+            action = agent.policy(obs)
+            assert env.check_obs_action(action, verbose=True), "Invalid proposed action!"
+            obs, reward, done, _ = env.step(action)
 
-        obs, reward, done, _ = env.step(action)
-        reward_sum += reward
+            reward_sum += reward
 
     # summary print out
     print "Initial balance:", env.init_balance
@@ -179,9 +195,45 @@ def run_policy():
     print "Reward accumulated:", reward_sum
     print "Return: {:.2f}%".format(100. * reward_sum / env.init_balance[0])
 
+    # return
+    return output
+
+
+def plot_output(output_list, plot_path):
+    """
+    Visualize the output from run_policy()
+
+    :param output: List of tuple (name, output), where output is the one as returned from run_policy()
+    :param plot_path: Where to store the plot
+    :return: No return
+    """
+
+    plt.figure()
+
+    for name, output in output_list:
+        x, y = zip(*output)
+        plt.plot(x, y, label=name)
+
+    plt.xlabel("Number of days")
+    plt.ylabel("Accumulated return rate [%]")
+    plt.legend()
+
+    plt.savefig(plot_path)
+    plt.close()
+
 
 if __name__ == "__main__":
-    run_policy()
+    output1 = run_policy("rlcrptocurrency-v0", "2017-12-1", 30)
+    output1 = ("Mean transfer time 5 min", output1)
+
+    output2 = run_policy("rlcrptocurrency-v1", "2017-12-1", 30)
+    output2 = ("Mean transfer time 30 min", output2)
+
+    output3 = run_policy("rlcrptocurrency-v2", "2017-12-1", 30)
+    output3 = ("Mean transfer time 60 min", output3)
+
+    output_list = [output1, output2, output3]
+    plot_output(output_list, "compare.png")
 
 
 
