@@ -282,7 +282,9 @@ if __name__ == "__main__":
     # output_list = [output1, output2, output3]
     # plot_output(output_list, "compare.png")
 
-    sim_policy("rlcrptocurrency-v0", "2015-3-1", 100, 10)
+    # sim_policy("rlcrptocurrency-v0", "2015-3-1", 100, 100)
+    # sim_policy("rlcrptocurrency-v0", "2015-8-23", 100, 100)
+    sim_policy("rlcrptocurrency-v0", "2017-1-1", 100, 100)
 
 
 

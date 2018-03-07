@@ -23,13 +23,16 @@ class RLCrptocurrencyEnv(gym.Env):
                         None by default. In which case, user should specify it through setter after instance is created
         """
 
+        # numerical tollerance
+        self._tol = 1e-5
+
         # define observation and action space
         # Since we have np.inf as bound, sample() on observation_space and action_space would throw error
         self.observation_space = spaces.Tuple((
-            spaces.Box(low=0.0, high=np.inf, shape=(n_exchange, n_currency+1), dtype=np.float64),           # portfolio
-            spaces.Box(low=0.0, high=np.inf,
+            spaces.Box(low=-self._tol, high=np.inf, shape=(n_exchange, n_currency+1), dtype=np.float64),    # portfolio
+            spaces.Box(low=-self._tol, high=np.inf,
                        shape=(n_exchange, n_currency, len(self.market_obs_attributes)), dtype=np.float64),  # market
-            spaces.Box(low=0.0, high=np.inf, shape=(n_currency,), dtype=np.float64),                        # buffer
+            spaces.Box(low=-self._tol, high=np.inf, shape=(n_currency,), dtype=np.float64),                 # buffer
         ))
         self.action_space = spaces.Tuple((
             spaces.Box(low=-np.inf, high=np.inf, shape=(n_exchange, n_currency), dtype=np.float64),              # purchase
@@ -70,9 +73,6 @@ class RLCrptocurrencyEnv(gym.Env):
         # Numpy array of shape (n_currency+1,), indicating the initial total balance
         # Should be reset every time init() is called
         self._init_balance = None
-
-        # numerical tollerance
-        self._tol = 1e-5
 
     @property
     def n_exchange(self):
