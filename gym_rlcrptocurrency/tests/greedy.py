@@ -199,6 +199,53 @@ def run_policy(env_name, start_date, n_days):
     return output
 
 
+def sim_policy(env_name, start_date, episode, n_episode):
+    """
+    Run policy continuously to simulate the score during training
+    """
+
+    # setup market data
+    data_path = "/Users/qzeng/Dropbox/MyDocument/Mac-ZQ/CS/CS234/Material2018/project/data/"
+    markets = [
+        [Market("{:s}/bitstampUSD_1-min_data_2012-01-01_to_2018-01-08.csv".format(data_path))],
+        [Market("{:s}/coinbaseUSD_1-min_data_2014-12-01_to_2018-01-08.csv".format(data_path))],
+    ]
+
+    # setup environment
+    env = gym.make(env_name)
+    env.set_markets(markets)
+
+    # initialize environment
+    init_portfolio = np.array(
+        [
+            [10000, 1],
+            [10000, 1],
+        ],
+        dtype=np.float64
+    )
+    init_time = start_date
+    obs, reward, done, _ = env.init(init_portfolio, init_time)
+
+    # setup agent
+    agent = PolicyGreedy(env.market_obs_attributes.index("Weighted_Price"), env.fee_exchange, env.fee_transfer)
+
+    # setup metrics
+    reward_episode_list = []
+    for _ in tqdm(range(n_episode), desc="Loop on episodes"):
+        reward_episode = 0.
+        obs, reward, done, _ = env.init(init_portfolio, None)
+
+        for _ in range(episode):
+            action = agent.policy(obs)
+            assert env.check_obs_action(action, verbose=True), "Invalid proposed action!"
+            obs, reward, done, _ = env.step(action)
+            reward_episode += reward
+
+        reward_episode_list.append(reward_episode)
+
+    print "Avg Reward: {:.4f} +/- {:.4f}".format(np.mean(reward_episode_list), np.std(reward_episode_list))
+
+
 def plot_output(output_list, plot_path):
     """
     Visualize the output from run_policy()
@@ -223,17 +270,20 @@ def plot_output(output_list, plot_path):
 
 
 if __name__ == "__main__":
-    output1 = run_policy("rlcrptocurrency-v0", "2017-12-1", 30)
-    output1 = ("Mean transfer time 5 min", output1)
+    # output1 = run_policy("rlcrptocurrency-v0", "2017-12-1", 30)
+    # output1 = ("Mean transfer time 5 min", output1)
+    #
+    # output2 = run_policy("rlcrptocurrency-v1", "2017-12-1", 30)
+    # output2 = ("Mean transfer time 30 min", output2)
+    #
+    # output3 = run_policy("rlcrptocurrency-v2", "2017-12-1", 30)
+    # output3 = ("Mean transfer time 60 min", output3)
+    #
+    # output_list = [output1, output2, output3]
+    # plot_output(output_list, "compare.png")
 
-    output2 = run_policy("rlcrptocurrency-v1", "2017-12-1", 30)
-    output2 = ("Mean transfer time 30 min", output2)
+    sim_policy("rlcrptocurrency-v0", "2015-3-1", 100, 10)
 
-    output3 = run_policy("rlcrptocurrency-v2", "2017-12-1", 30)
-    output3 = ("Mean transfer time 60 min", output3)
-
-    output_list = [output1, output2, output3]
-    plot_output(output_list, "compare.png")
 
 
 

@@ -339,6 +339,17 @@ class RLCrptocurrencyEnv(gym.Env):
 
         return self._get_observation()
 
+    def get_time(self):
+        """
+        Obtain current time
+
+        :return: Timestamp
+        """
+
+        assert self._check_market_align(), "Market times are not aligned!"
+
+        return self._state_market[0][0].peek()["Timestamp"]
+
     @property
     def market_obs_attributes(self):
         return [
