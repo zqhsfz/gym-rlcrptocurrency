@@ -224,22 +224,26 @@ def sim_policy(env_name, start_date, episode, n_episode):
         dtype=np.float64
     )
     init_time = start_date
-    obs, reward, done, _ = env.init(init_portfolio, init_time)
+    env.init(init_portfolio, init_time)
 
     # setup agent
     agent = PolicyGreedy(env.market_obs_attributes.index("Weighted_Price"), env.fee_exchange, env.fee_transfer)
 
     # setup metrics
     reward_episode_list = []
+    t = 0
     for _ in tqdm(range(n_episode), desc="Loop on episodes"):
+        env.init(init_portfolio, None)
+        obs, reward, done, _ = env.move_market(t)
         reward_episode = 0.
-        obs, reward, done, _ = env.init(init_portfolio, None)
-
+	
         for _ in range(episode):
             action = agent.policy(obs)
             assert env.check_obs_action(action, verbose=True), "Invalid proposed action!"
             obs, reward, done, _ = env.step(action)
             reward_episode += reward
+
+            t += 1
 
         reward_episode_list.append(reward_episode)
 
@@ -282,11 +286,13 @@ if __name__ == "__main__":
     # output_list = [output1, output2, output3]
     # plot_output(output_list, "compare.png")
 
-    # sim_policy("rlcrptocurrency-v0", "2015-3-1", 100, 100)
+    # sim_policy("rlcrptocurrency-v0", "2015-3-1", 100, 10)
+    # sim_policy("rlcrptocurrency-v1", "2015-3-1", 100, 10)
+    # sim_policy("rlcrptocurrency-v1", "2017-12-5", 100, 10)
     # sim_policy("rlcrptocurrency-v0", "2015-8-23", 100, 100)
-    sim_policy("rlcrptocurrency-v0", "2017-1-1", 100, 100)
-
-
+    # sim_policy("rlcrptocurrency-v0", "2017-1-1", 100, 10)
+    
+    run_policy("rlcrptocurrency-v1", "2015-9-1", 7)
 
 
 

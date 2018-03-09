@@ -74,6 +74,16 @@ class RLCrptocurrencyEnv(gym.Env):
         # Should be reset every time init() is called
         self._init_balance = None
 
+        self._name = "RLCrptocurrencyEnv"  # default name
+
+    @property
+    def name(self):
+        return self._name
+
+    def set_name(self, name):
+        self._name = name
+        return self
+
     @property
     def n_exchange(self):
         return self._n_exchange
@@ -621,31 +631,34 @@ class Market(object):
         if time is None:
             self._index = 0
         else:
-            # prepare inputs
-            ts = self.data["Timestamp"].tolist()
+            # # prepare inputs
+            # ts = self.data["Timestamp"].tolist()
+            # time = pd.to_datetime(time)
+            #
+            # # perform binary search
+            # i_start = 0
+            # i_end = len(ts)-1
+            #
+            # assert ts[i_start] <= time <= ts[i_end], "Input time out of bound!"
+            #
+            # i_match = None
+            # while True:
+            #     i_current = (i_start + i_end)/2
+            #
+            #     if (time == ts[i_current]) or (ts[i_current] < time < ts[i_current+1]):
+            #         i_match = i_current
+            #         break
+            #     elif time < ts[i_current]:
+            #         i_end = i_current
+            #     else:
+            #         i_start = i_current + 1
+            #
+            # assert i_match is not None, "Error in finding closest time-stamp!"
+            #
+            # self._index = i_match
+
             time = pd.to_datetime(time)
-
-            # perform binary search
-            i_start = 0
-            i_end = len(ts)-1
-
-            assert ts[i_start] <= time <= ts[i_end], "Input time out of bound!"
-
-            i_match = None
-            while True:
-                i_current = (i_start + i_end)/2
-
-                if (time == ts[i_current]) or (ts[i_current] < time < ts[i_current+1]):
-                    i_match = i_current
-                    break
-                elif time < ts[i_current]:
-                    i_end = i_current
-                else:
-                    i_start = i_current + 1
-
-            assert i_match is not None, "Error in finding closest time-stamp!"
-
-            self._index = i_match
+            self._index = pd.Index(self._data["Timestamp"]).get_loc(time)
 
         self._index_init = self._index
 
@@ -778,30 +791,33 @@ class TransferBuffer(object):
 
         element = deepcopy(element)
 
-        current_size = self.size
+        # current_size = self.size
+        #
+        # if current_size == 0:
+        #     self._buffer.append(element)
+        # else:
+        #     if element.time_left < self._buffer[0].time_left:
+        #         self._buffer.insert(0, element)
+        #     elif element.time_left > self._buffer[current_size - 1].time_left:
+        #         self._buffer.append(element)
+        #     else:
+        #         i_start = 0
+        #         i_end = current_size - 1
+        #
+        #         while True:
+        #             i_current = (i_start + i_end) / 2
+        #
+        #             if (self._buffer[i_current].time_left == element.time_left) or \
+        #                     (self._buffer[i_current].time_left < element.time_left <= self._buffer[i_current+1].time_left):
+        #                 self._buffer.insert(i_current+1, element)
+        #                 break
+        #             elif element.time_left < self._buffer[i_current].time_left:
+        #                 i_end = i_current - 1
+        #             else:
+        #                 i_start = i_current + 2
 
-        if current_size == 0:
-            self._buffer.append(element)
-        else:
-            if element.time_left < self._buffer[0].time_left:
-                self._buffer.insert(0, element)
-            elif element.time_left > self._buffer[current_size - 1].time_left:
-                self._buffer.append(element)
-            else:
-                i_start = 0
-                i_end = current_size - 1
-
-                while True:
-                    i_current = (i_start + i_end) / 2
-
-                    if (self._buffer[i_current].time_left == element.time_left) or \
-                            (self._buffer[i_current].time_left < element.time_left <= self._buffer[i_current+1].time_left):
-                        self._buffer.insert(i_current+1, element)
-                        break
-                    elif element.time_left < self._buffer[i_current].time_left:
-                        i_end = i_current - 1
-                    else:
-                        i_start = i_current + 2
+        self._buffer.append(element)
+        self._buffer = sorted(self._buffer, key=lambda x: x.time_left)
 
         return self
 
