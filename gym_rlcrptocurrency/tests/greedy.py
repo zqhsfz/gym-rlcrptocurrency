@@ -209,6 +209,7 @@ def sim_policy(env_name, start_date, episode, n_episode):
     markets = [
         [Market("{:s}/bitstampUSD_1-min_data_2012-01-01_to_2018-01-08.csv".format(data_path))],
         [Market("{:s}/coinbaseUSD_1-min_data_2014-12-01_to_2018-01-08.csv".format(data_path))],
+        # [Market("{:s}/bitstampUSD_1-min_data_2012-01-01_to_2018-01-08.csv".format(data_path))],
     ]
 
     # setup environment
@@ -292,7 +293,9 @@ if __name__ == "__main__":
     # sim_policy("rlcrptocurrency-v0", "2015-8-23", 100, 100)
     # sim_policy("rlcrptocurrency-v0", "2017-1-1", 100, 10)
     
-    run_policy("rlcrptocurrency-v1", "2015-9-1", 7)
+    # run_policy("rlcrptocurrency-v1", "2015-9-1", 7)
+    # run_policy("rlcrptocurrency-v1", "2017-12-5", 7)
+    run_policy("rlcrptocurrency-v1", "2017-11-15", 7)
 
 
 

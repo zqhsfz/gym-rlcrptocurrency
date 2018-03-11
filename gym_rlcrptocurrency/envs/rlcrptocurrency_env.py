@@ -75,6 +75,7 @@ class RLCrptocurrencyEnv(gym.Env):
         self._init_balance = None
 
         self._name = "RLCrptocurrencyEnv"  # default name
+        self._debug = False  # whether in debug mode
 
     @property
     def name(self):
@@ -83,6 +84,14 @@ class RLCrptocurrencyEnv(gym.Env):
     def set_name(self, name):
         self._name = name
         return self
+
+    @property
+    def debug(self):
+        return self._debug
+
+    @debug.setter
+    def debug(self, value):
+        self._debug = value
 
     @property
     def n_exchange(self):
@@ -457,7 +466,21 @@ class RLCrptocurrencyEnv(gym.Env):
         :return: Boolean
         """
 
-        return self._check_market_align() and self._check_crypto_balance() and self.observation_space.contains(self._get_observation())
+        condition1 = self._check_market_align()
+        condition2 = self._check_crypto_balance()
+        condition3 = self.observation_space.contains(self._get_observation())
+
+        if self._debug:
+            if not condition1:
+                print "Fail check_market_align!"
+
+            if not condition2:
+                print "Fail crypto balance!"
+
+            if not condition3:
+                print "Fail observation validity!"
+
+        return condition1 and condition2 and condition3
 
     def _check_action(self, action):
         """
