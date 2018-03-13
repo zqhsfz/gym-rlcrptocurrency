@@ -139,13 +139,14 @@ class PolicyGreedy(object):
         return action_purchase, action_transfer
 
 
-def run_policy(env_name, start_date, n_days):
+def run_policy(env_name, start_date, n_days, n_test=1):
     """
     Run greedy algorithm for n_days starting from start_date
 
     :param env_name: Name of environment
     :param start_date: Str, starting date
     :param n_days: Int, number of days
+    :param n_test: Int, numebr of tests to be repeated
     :return: array of (date, aggregated return rate)
     """
 
@@ -169,34 +170,45 @@ def run_policy(env_name, start_date, n_days):
         dtype=np.float64
     )
     init_time = start_date
-    obs, reward, done, _ = env.init(init_portfolio, init_time)
+    env.init(init_portfolio, init_time)
 
     # setup agent
     agent = PolicyGreedy(env.market_obs_attributes.index("Weighted_Price"), env.fee_exchange, env.fee_transfer)
 
-    # setup metrics
-    reward_sum = reward
-    output = []
+    # loop through number of tests
+    reward_sum_list = []
+    for _ in range(n_test):
+        # reset env
+        obs, reward, done, _ = env.init(init_portfolio, None)
 
-    # loop for a complete episode
-    for index_day in tqdm(range(n_days), desc="Loop on days"):
-        output.append((index_day, 100.0 * reward_sum / 20000.))
+        assert reward == 0., "How do you turn this on ..."
 
-        for _ in range(1440):
-            action = agent.policy(obs)
-            assert env.check_obs_action(action, verbose=True), "Invalid proposed action!"
-            obs, reward, done, _ = env.step(action)
+        # setup metrics
+        reward_sum = reward
+        output = []
 
-            reward_sum += reward
+        # loop for a complete episode
+        for index_day in tqdm(range(n_days), desc="Loop on days"):
+            for _ in range(1440):
+                action = agent.policy(obs)
+                assert env.check_obs_action(action, verbose=True), "Invalid proposed action!"
+                obs, reward, done, _ = env.step(action)
+
+                reward_sum += reward
+
+            # reflect the accumulated return at the end of day
+            output.append((index_day, 100.0 * reward_sum / 20000.))
+
+        # update
+        reward_sum_list.append(reward_sum)
 
     # summary print out
     print "Initial balance:", env.init_balance
-    print "Final balance:", env.get_balance()
-    print "Reward accumulated:", reward_sum
-    print "Return: {:.2f}%".format(100. * reward_sum / env.init_balance[0])
+    print "Reward accumulated: {:.4f} +/- {:.4f}".format(np.mean(reward_sum_list), np.std(reward_sum_list))
+    # print "Return: {:.2f}%".format(100. * reward_sum / env.init_balance[0])
 
-    # return
-    return output
+    return
+    # return output
 
 
 def sim_policy(env_name, start_date, episode, n_episode):
@@ -237,7 +249,7 @@ def sim_policy(env_name, start_date, episode, n_episode):
         env.init(init_portfolio, None)
         obs, reward, done, _ = env.move_market(t)
         reward_episode = 0.
-	
+
         for _ in range(episode):
             action = agent.policy(obs)
             assert env.check_obs_action(action, verbose=True), "Invalid proposed action!"
@@ -255,7 +267,7 @@ def plot_output(output_list, plot_path):
     """
     Visualize the output from run_policy()
 
-    :param output: List of tuple (name, output), where output is the one as returned from run_policy()
+    :param output_list: List of tuple (name, output), where output is the one as returned from run_policy()
     :param plot_path: Where to store the plot
     :return: No return
     """
@@ -295,7 +307,8 @@ if __name__ == "__main__":
     
     # run_policy("rlcrptocurrency-v1", "2015-9-1", 7)
     # run_policy("rlcrptocurrency-v1", "2017-12-5", 7)
-    run_policy("rlcrptocurrency-v1", "2017-11-15", 7)
+    run_policy("rlcrptocurrency-v1", "2017-11-15", 7, n_test=10)
+    # run_policy("rlcrptocurrency-v1", "2017-11-5", 7)
 
 
 
