@@ -7,6 +7,7 @@ from gym_rlcrptocurrency.envs import Market
 import numpy as np
 from copy import deepcopy
 from tqdm import tqdm
+import dill
 
 import matplotlib
 matplotlib.use('agg')
@@ -139,7 +140,7 @@ class PolicyGreedy(object):
         return action_purchase, action_transfer
 
 
-def run_policy(env_name, start_date, n_days, n_test=1):
+def run_policy(env_name, start_date, n_days, n_test=1, write_result=False):
     """
     Run greedy algorithm for n_days starting from start_date
 
@@ -147,6 +148,7 @@ def run_policy(env_name, start_date, n_days, n_test=1):
     :param start_date: Str, starting date
     :param n_days: Int, number of days
     :param n_test: Int, numebr of tests to be repeated
+    :param write_result: Boolean, whether we write result to the disk
     :return: array of (date, aggregated return rate)
     """
 
@@ -177,6 +179,7 @@ def run_policy(env_name, start_date, n_days, n_test=1):
 
     # loop through number of tests
     reward_sum_list = []
+    reward_accum_list = []
     for _ in range(n_test):
         # reset env
         obs, reward, done, _ = env.init(init_portfolio, None)
@@ -201,13 +204,20 @@ def run_policy(env_name, start_date, n_days, n_test=1):
 
         # update
         reward_sum_list.append(reward_sum)
+        reward_accum_list.append(output)
 
     # summary print out
     print "Initial balance:", env.init_balance
     print "Reward accumulated: {:.4f} +/- {:.4f}".format(np.mean(reward_sum_list), np.std(reward_sum_list))
     # print "Return: {:.2f}%".format(100. * reward_sum / env.init_balance[0])
 
-    return
+    info_to_store = {
+        "reward_sum_list": reward_sum_list,
+        "reward_accum_list": reward_accum_list,
+    }
+    dill.dump(info_to_store, open("result_run_policy.dill", "w"))
+
+    return info_to_store
     # return output
 
 
@@ -304,11 +314,16 @@ if __name__ == "__main__":
     # sim_policy("rlcrptocurrency-v1", "2017-12-5", 100, 10)
     # sim_policy("rlcrptocurrency-v0", "2015-8-23", 100, 100)
     # sim_policy("rlcrptocurrency-v0", "2017-1-1", 100, 10)
+    # sim_policy("rlcrptocurrency-v1", "2017-11-15", 100, 100)
+    # sim_policy("rlcrptocurrency-v1", "2017-12-1", 100, 100)
     
     # run_policy("rlcrptocurrency-v1", "2015-9-1", 7)
     # run_policy("rlcrptocurrency-v1", "2017-12-5", 7)
-    run_policy("rlcrptocurrency-v1", "2017-11-15", 7, n_test=10)
-    # run_policy("rlcrptocurrency-v1", "2017-11-5", 7)
+    run_policy("rlcrptocurrency-v1", "2017-12-1", 7, n_test=20, write_result=True)
+    # run_policy("rlcrptocurrency-v1", "2017-11-15", 7, n_test=20, write_result=True)
+    # run_policy("rlcrptocurrency-v1", "2017-11-5", 7, n_test=20, write_result=True)
+    # run_policy("rlcrptocurrency-v0", "2017-11-15", 7, n_test=20, write_result=)
+    # run_policy("rlcrptocurrency-v0", "2017-11-15", 7, n_test=10)
 
 
 
